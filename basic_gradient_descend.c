@@ -26,8 +26,6 @@ typedef struct data
     int len;
 } Data;
 
-
-
 float clamp(float x, float min, float max)
 {
     if (x > max)
@@ -92,9 +90,12 @@ float loss_function(Params* curr_params, Data* data)
 {   // the function that is optimized
     float loss = 0;
 
-    for (int i = 0; i < data->len; i++)
+    for (int i = 0; i < NUM_PARAMS; i++)
     {
-        loss += pow( pow(curr_params->array[0], data->x[i]) - data->y[i], 2 );
+        for (int j = 0; j < data->len; j++)
+        {
+            loss += pow( pow(curr_params->array[i], data->x[j]) - data->y[j], 2 );
+        }
     }
 
     return loss;
@@ -122,7 +123,10 @@ float* loss_function_gradient(Params* curr_params, Data* data)
 Params* generate_random_params()
 {   // generating a random state of parameters, this is needed for the initial state of the optimization
     Params* nasumicna = (Params*)malloc(sizeof(Params));
-    nasumicna->array[0] = rand() % 21 - 10;
+
+    for (int i = 0; i < NUM_PARAMS; i++)
+        nasumicna->array[i] = rand() % 21 - 10;
+    
     return nasumicna; 
 }
 
@@ -134,8 +138,6 @@ void update_params(Params* curr_params, Data* data)
         curr_params->array[i] -= ALPHA * clamp(gradients[i], -LIMIT_STEP, LIMIT_STEP);
     }
 }
-
-
 
 void print_history(float* gradients, Params** params)
 {
@@ -175,7 +177,8 @@ int main()
     printf("Optimized parameters:\n");
     for (int i = 0; i < NUM_PARAMS; i++)
     {
-        printf("%f\n", optimized_params->array[i]);
+        printf("%f  ", optimized_params->array[i]);
     }
+    printf("\n");
     return 0;
 }
