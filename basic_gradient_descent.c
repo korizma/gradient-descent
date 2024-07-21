@@ -173,12 +173,21 @@ Params* gradient_descent()
 int main()
 {
     srand(time(NULL));
+
+    clock_t start = clock();
+
     Params* optimized_params = gradient_descent();
+
+    clock_t end = clock();
+    double time_spent = (double)(end - start) / CLOCKS_PER_SEC;
+    printf("Execute time: %f\n", time_spent);
+
     printf("Optimized parameters:\n");
     for (int i = 0; i < NUM_PARAMS; i++)
     {
         printf("%f  ", optimized_params->array[i]);
     }
     printf("\n");
+
     return 0;
 }
