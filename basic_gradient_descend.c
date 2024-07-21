@@ -3,13 +3,16 @@
 #include <math.h>
 #include <stdbool.h>
 #include <string.h>
+#include <time.h>
 
 #define NUM_PARAMS 1
 
 #define MAX_ITER 1000
-#define ALPHA 0.1
+#define ALPHA 0.01
 #define BETA 0.1
 #define LIMIT_STEP 1
+
+#define BUFFER_INPUT 5
 
 typedef struct params
 {
@@ -18,27 +21,12 @@ typedef struct params
 
 typedef struct data
 {   // the data needs to be dynamically allocated
-    float *data;
+    float *x;
+    float *y;
+    int len;
 } Data;
 
-void plot_gradients(float* gradients)
-{
-    char * commandsForGnuplot[] = {"set title \"Gradient plot through iterations\"", "plot 'data.temp'"};
-    FILE * temp = fopen("data.temp", "w");
-    
-    FILE * gnuplotPipe = popen ("gnuplot -persistent", "w");
 
-    int i;
-    for (i = 0; i < MAX_ITER; i++)
-    {
-        fprintf(temp, "%d %f \n", i, gradients[i]); 
-    }
-
-    for (i = 0; i < MAX_ITER; i++)
-    {
-        fprintf(gnuplotPipe, "%s \n", commandsForGnuplot[i]); 
-    }
-}
 
 float clamp(float x, float min, float max)
 {
@@ -61,34 +49,103 @@ Params* copy_params(Params* original)
 
 Data* import_data(char* filename)
 {
-    Data* data = (Data*)malloc(sizeof(Data));
     // importing the data on which the params are being optimized for
+    Data* data = (Data*)malloc(sizeof(Data));
+
+    FILE* file = fopen(filename, "r");
+    if (file == NULL)
+    {
+        printf("Error opening file\n");
+        exit(1);
+    }
+
+    data->x = (float*)malloc(sizeof(float)*BUFFER_INPUT);
+    data->y = (float*)malloc(sizeof(float)*BUFFER_INPUT);
+
+    int curr_line = 0;
+    int curr_cap = BUFFER_INPUT;
+
+    while (fscanf(file, "%f %f\n", &data->x[curr_line], &data->y[curr_line]) != EOF)
+    {
+        curr_line++;
+        if (curr_cap == curr_line)
+        {
+            curr_cap += BUFFER_INPUT;
+            data->x = (float*)realloc(data->x, curr_cap*sizeof(float));
+            data->y = (float*)realloc(data->y, curr_cap*sizeof(float));
+        }
+    }
+
+    fclose(file);
+
+    printf("Data imported:\nx y\n");
+    for (int i = 0; i < curr_line; i++)
+    {
+        printf("%f %f\n", data->x[i], data->y[i]);
+    }
+
+    data->len = curr_line;
     return data;
 }
 
 float loss_function(Params* curr_params, Data* data)
 {   // the function that is optimized
-    return 1;
+    float loss = 0;
+
+    for (int i = 0; i < data->len; i++)
+    {
+        loss += pow( pow(curr_params->array[0], data->x[i]) - data->y[i], 2 );
+    }
+
+    return loss;
 }
 
-float loss_function_gradient(Params* curr_params, Data* data)
+float* loss_function_gradient(Params* curr_params, Data* data)
 {   // the gradient of the function that needs to be optimized
-    return 1;
+    float* gradients = (float*)malloc(sizeof(float)*NUM_PARAMS);
+
+    float dx = 10e-4;
+
+    for (int i = 0; i < NUM_PARAMS; i++)
+    {
+        Params* params_plus = copy_params(curr_params);
+
+        params_plus->array[i] += dx;
+
+        gradients[i] = (loss_function(params_plus, data) - loss_function(curr_params, data)) / dx;
+
+        free(params_plus);
+    }
+    return gradients;
 }
 
 Params* generate_random_params()
 {   // generating a random state of parameters, this is needed for the initial state of the optimization
     Params* nasumicna = (Params*)malloc(sizeof(Params));
+    nasumicna->array[0] = rand() % 21 - 10;
     return nasumicna; 
 }
 
 void update_params(Params* curr_params, Data* data)
 {
+    float* gradients = loss_function_gradient(curr_params, data);
     for (int i = 0; i < NUM_PARAMS; i++)
     {
-        curr_params->array[i] -= clamp(ALPHA * loss_function_gradient(curr_params, data), -LIMIT_STEP, LIMIT_STEP);
+        curr_params->array[i] -= ALPHA * clamp(gradients[i], -LIMIT_STEP, LIMIT_STEP);
     }
 }
+
+
+
+void print_history(float* gradients, Params** params)
+{
+    printf("Gradients, Params:\n");
+    for (int i = 0; i < MAX_ITER; i++)
+    {
+        printf("%f, %f\n", gradients[i], params[i]->array[0]);
+    }
+}
+
 
 Params* gradient_descent()
 {   // main function
@@ -96,23 +153,29 @@ Params* gradient_descent()
     Params* params[MAX_ITER];
 
     Params* curr_params = generate_random_params();
-    Data* data = import_data("filename");    // change the file name to import data
+    Data* data = import_data("data.txt");    // change the file name to import data
 
     for (int iter = 0; iter < MAX_ITER; iter++)
     {
-        gradients[iter] = loss_function(curr_params, data);
+        gradients[iter] = loss_function_gradient(curr_params, data)[0];
         params[iter] = copy_params(curr_params);
 
         update_params(curr_params, data);
     }
 
-    plot_gradients(gradients);
+    print_history(gradients, params);
 
     return curr_params;
 }
 
 int main()
 {
-    // Params** params = gradient_descent();
+    srand(time(NULL));
+    Params* optimized_params = gradient_descent();
+    printf("Optimized parameters:\n");
+    for (int i = 0; i < NUM_PARAMS; i++)
+    {
+        printf("%f\n", optimized_params->array[i]);
+    }
     return 0;
 }
