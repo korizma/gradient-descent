@@ -7,12 +7,15 @@
 
 #define NUM_PARAMS 2
 
-#define MAX_ITER 1000
+#define MAX_ITER 50000
 #define ALPHA 0.01
 #define BETA 0.1
-#define LIMIT_STEP 1
+#define LIMIT_STEP 5
+#define BATCH_SIZE 100
+#define TERMINATION_CRITERIUM 0.01
 
 #define BUFFER_INPUT 5
+#define REPEATED_INDICES 1000
 
 typedef struct params
 {
@@ -86,13 +89,45 @@ Data* import_data(char* filename)
     return data;
 }
 
+int* random_indices(int len)
+{
+    int* indices = (int*)malloc(sizeof(int)*BATCH_SIZE);
+    int* taken = (int*)calloc(len, sizeof(int));
+    int repeated = 0;
+
+    for (int i = 0; i < BATCH_SIZE; i++)
+    {
+        int index = rand() % len;
+        while (taken[index] == 1)
+        {
+            index = rand() % len;
+
+            repeated++;
+            if (repeated > REPEATED_INDICES)
+            {
+                printf("Error: too many repeated indices\n");
+                exit(1);
+            }
+        }
+
+        taken[index] = 1;
+        indices[i] = index;
+    }
+    
+
+    free(taken);
+
+    return indices;
+}
+
 float loss_function(Params* curr_params, Data* data)
 {   // the function that is optimized
     float loss = 0;
+    int *indices = random_indices(data->len);
 
-    for (int j = 0; j < data->len; j++)
+    for (int j = 0; j < BATCH_SIZE; j++)
     {
-        loss += pow(curr_params->array[0] * data->x[j] + curr_params->array[1]* (data->x[j] * data->x[j]) - data->y[j], 2 );
+        loss += pow(curr_params->array[0] * data->x[indices[j]] + curr_params->array[1]* (data->x[indices[j]] * data->x[indices[j]]) - data->y[indices[j]], 2 );
     }
 
     return loss;
@@ -102,7 +137,7 @@ float* loss_function_gradient(Params* curr_params, Data* data)
 {   // the gradient of the function that needs to be optimized
     float* gradients = (float*)malloc(sizeof(float)*NUM_PARAMS);
 
-    float dx = 10e-4;
+    float dx = 10e-3;
 
     for (int i = 0; i < NUM_PARAMS; i++)
     {
@@ -127,42 +162,54 @@ Params* generate_random_params()
     return nasumicna; 
 }
 
-void update_params(Params* curr_params, Data* data)
+void update_params(Params* curr_params, Data* data, float *velocities)
 {
     float* gradients = loss_function_gradient(curr_params, data);
+    float* new_velocities = (float*)malloc(sizeof(float)*NUM_PARAMS);
+
     for (int i = 0; i < NUM_PARAMS; i++)
     {
-        curr_params->array[i] -= ALPHA * clamp(gradients[i], -LIMIT_STEP, LIMIT_STEP);
+        new_velocities[i] = BETA * velocities[i] - ALPHA * clamp(gradients[i], -LIMIT_STEP, LIMIT_STEP);
+        curr_params->array[i] += new_velocities[i];
+
+        velocities[i] = new_velocities[i];
     }
+
+    free(gradients);
+    free(new_velocities);
 }
 
-void print_history(float* gradients, Params** params)
+void print_history(float* loss, float* gradients, Params** params, int final_iter)
 {
-    printf("Gradients, Params:\n");
-    for (int i = 0; i < MAX_ITER; i++)
+    printf("Loss, Gradients, Params:\n");
+    for (int i = 0; i < final_iter; i++)
     {
-        printf("%f, %f\n", gradients[i], params[i]->array[0]);
+        printf("%f, %f, %f, %f\n", loss[i], gradients[i], params[i]->array[0], params[i]->array[1]);
     }
 }
 
 
 Params* gradient_descent()
 {   // main function
-    float gradients[MAX_ITER];
+    float gradients[MAX_ITER], loss[MAX_ITER];
     Params* params[MAX_ITER];
+    float velocities[NUM_PARAMS] = {0};
 
     Params* curr_params = generate_random_params();
     Data* data = import_data("podaci_za_fit.csv");    // change the file name to import data
 
-    for (int iter = 0; iter < MAX_ITER; iter++)
+    int iter;
+    for (iter = 0; iter < MAX_ITER; iter++)
     {
         gradients[iter] = loss_function_gradient(curr_params, data)[0];
         params[iter] = copy_params(curr_params);
+        loss[iter] = loss_function(curr_params, data);
 
-        update_params(curr_params, data);
+        update_params(curr_params, data, velocities);
+        if (loss[iter] < TERMINATION_CRITERIUM)
+            break;
     }
-
-    print_history(gradients, params);
+    // print_history(loss, gradients, params, iter);
 
     return curr_params;
 }
