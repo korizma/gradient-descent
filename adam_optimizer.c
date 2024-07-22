@@ -9,7 +9,9 @@
 
 #define MAX_ITER 10000
 #define ALPHA 0.01
-#define BETA 0.1
+#define BETA1 0.9
+#define BETA2 0.999
+#define EPSILON 10e-8
 #define LIMIT_STEP 1
 #define BATCH_SIZE 10
 
@@ -78,8 +80,6 @@ Data* import_data(char* filename)
 
     fclose(file);
 
-    printf("Data imported correctly.\n");
-
     data->len = curr_line;
     return data;
 }
@@ -108,7 +108,6 @@ int* random_indices(int len)
         taken[index] = 1;
         indices[i] = index;
     }
-    
 
     free(taken);
 
@@ -160,12 +159,19 @@ Params* generate_random_params()
     return nasumicna; 
 }
 
-void update_params(Params* curr_params, Data* data)
+void update_params(Params* curr_params, Data* data, float m[MAX_ITER + 1][NUM_PARAMS], float v[MAX_ITER + 1][NUM_PARAMS], int iter)
 {
     float* gradients = loss_function_gradient(curr_params, data);
+    
     for (int i = 0; i < NUM_PARAMS; i++)
     {
-        curr_params->array[i] -= ALPHA * clamp(gradients[i], -LIMIT_STEP, LIMIT_STEP);
+        m[iter][i] = BETA1 * m[iter-1][i] + (1 - BETA1) * gradients[i];
+        v[iter][i] = BETA2 * v[iter-1][i] + (1 - BETA2) * pow(gradients[i], 2);
+
+        float m_hat = m[iter][i] / (1 - pow(BETA1, iter+1));
+        float v_hat = v[iter][i] / (1 - pow(BETA2, iter+1));
+
+        curr_params->array[i] -= ALPHA * clamp(m_hat / (sqrt(v_hat) + EPSILON), -LIMIT_STEP, LIMIT_STEP);
     }
 }
 
@@ -178,28 +184,58 @@ void print_history(float* gradients, Params** params)
     }
 }
 
+void export_to_file(float *array, int len, char *filename)
+{
+    FILE *file = fopen(filename, "w");
+    if (file == NULL)
+    {
+        printf("Error opening file\n");
+        exit(1);
+    }
+
+    for (int i = 0; i < len; i++)
+    {
+        fprintf(file, "%d,%f\n", i, array[i]);
+    }
+
+    fclose(file);
+}
 
 Params* gradient_descent()
 {   // main function
     float gradients[MAX_ITER], loss[MAX_ITER];
     Params* params[MAX_ITER];
+    float m[MAX_ITER + 1][NUM_PARAMS];
+    float v[MAX_ITER + 1][NUM_PARAMS];
+
+    for (int i = 0; i < NUM_PARAMS; i++)
+    {
+        m[0][i] = v[0][i] = 0;
+    }
+    
 
     Params* curr_params = generate_random_params();
     Data* data = import_data("data.txt");    // change the file name to import data
 
-    for (int iter = 0; iter < MAX_ITER; iter++)
+    for (int iter = 1; iter <= MAX_ITER; iter++)
     {
-        gradients[iter] = loss_function_gradient(curr_params, data)[0];
-        params[iter] = copy_params(curr_params);
-        loss[iter] = loss_function(curr_params, data);
+        gradients[iter-1] = loss_function_gradient(curr_params, data)[0];
+        params[iter-1] = copy_params(curr_params);
+        loss[iter-1] = loss_function(curr_params, data);
 
-        update_params(curr_params, data);
+        update_params(curr_params, data, m, v, iter);
     }
 
     // print_history(gradients, params);
+    export_to_file(loss, MAX_ITER, "loss.txt");
 
     return curr_params;
 }
+
+
+
+
+
 
 int main()
 {
@@ -219,6 +255,10 @@ int main()
         printf("%f  ", optimized_params->array[i]);
     }
     printf("\n");
+
+    float loss = loss_function(optimized_params, import_data("data.txt"));
+    printf("Loss: %f\n", loss);
+
 
     return 0;
 }
