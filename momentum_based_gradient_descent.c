@@ -13,6 +13,7 @@
 #define LIMIT_STEP 5
 #define BATCH_SIZE 100
 #define TERMINATION_CRITERIUM 0.01
+#define GRADIENT_STEP 10e-3
 
 #define BUFFER_INPUT 5
 #define REPEATED_INDICES 1000
@@ -137,7 +138,7 @@ float* loss_function_gradient(Params* curr_params, Data* data)
 {   // the gradient of the function that needs to be optimized
     float* gradients = (float*)malloc(sizeof(float)*NUM_PARAMS);
 
-    float dx = 10e-3;
+    float dx = GRADIENT_STEP;
 
     for (int i = 0; i < NUM_PARAMS; i++)
     {

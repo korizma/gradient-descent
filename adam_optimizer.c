@@ -5,15 +5,16 @@
 #include <string.h>
 #include <time.h>
 
-#define NUM_PARAMS 1
-
-#define MAX_ITER 10000
+#define NUM_PARAMS 2
+#define MAX_ITER 100000
 #define ALPHA 0.01
 #define BETA1 0.9
 #define BETA2 0.999
 #define EPSILON 10e-8
-#define LIMIT_STEP 1
-#define BATCH_SIZE 10
+#define LIMIT_STEP 5
+#define BATCH_SIZE 100
+#define TERMINATION_CRITERIUM 0.01
+#define GRADIENT_STEP 10e-3
 
 #define BUFFER_INPUT 5
 #define REPEATED_INDICES 1000
@@ -66,8 +67,8 @@ Data* import_data(char* filename)
 
     int curr_line = 0;
     int curr_cap = BUFFER_INPUT;
-
-    while (fscanf(file, "%f %f\n", &data->x[curr_line], &data->y[curr_line]) != EOF)
+    int nista;
+    while (fscanf(file, "%d,%f,%f\n", &nista, &data->x[curr_line], &data->y[curr_line]) != EOF)
     {
         curr_line++;
         if (curr_cap == curr_line)
@@ -79,6 +80,12 @@ Data* import_data(char* filename)
     }
 
     fclose(file);
+
+    printf("Data imported:\nx y\n");
+    for (int i = 0; i < curr_line; i++)
+    {
+        printf("%f %f\n", data->x[i], data->y[i]);
+    }
 
     data->len = curr_line;
     return data;
@@ -108,6 +115,7 @@ int* random_indices(int len)
         taken[index] = 1;
         indices[i] = index;
     }
+    
 
     free(taken);
 
@@ -119,12 +127,9 @@ float loss_function(Params* curr_params, Data* data)
     float loss = 0;
     int *indices = random_indices(data->len);
 
-    for (int i = 0; i < NUM_PARAMS; i++)
+    for (int j = 0; j < BATCH_SIZE; j++)
     {
-        for (int j = 0; j < BATCH_SIZE; j++)
-        {
-            loss += pow( pow(curr_params->array[i], data->x[indices[j]]) - data->y[indices[j]], 2 );
-        }
+        loss += pow(curr_params->array[0] * data->x[indices[j]] + curr_params->array[1]* (data->x[indices[j]] * data->x[indices[j]]) - data->y[indices[j]], 2 );
     }
 
     return loss;
@@ -134,7 +139,7 @@ float* loss_function_gradient(Params* curr_params, Data* data)
 {   // the gradient of the function that needs to be optimized
     float* gradients = (float*)malloc(sizeof(float)*NUM_PARAMS);
 
-    float dx = 10e-4;
+    float dx = GRADIENT_STEP;
 
     for (int i = 0; i < NUM_PARAMS; i++)
     {
@@ -159,83 +164,66 @@ Params* generate_random_params()
     return nasumicna; 
 }
 
-void update_params(Params* curr_params, Data* data, float m[MAX_ITER + 1][NUM_PARAMS], float v[MAX_ITER + 1][NUM_PARAMS], int iter)
+void update_params(Params* curr_params, Data* data, float *v, float *m, int iter)
 {
     float* gradients = loss_function_gradient(curr_params, data);
-    
+    float* new_v = (float*)malloc(sizeof(float)*NUM_PARAMS);
+    float* new_m = (float*)malloc(sizeof(float)*NUM_PARAMS);
+    float vk, mk;
+
     for (int i = 0; i < NUM_PARAMS; i++)
     {
-        m[iter][i] = BETA1 * m[iter-1][i] + (1 - BETA1) * gradients[i];
-        v[iter][i] = BETA2 * v[iter-1][i] + (1 - BETA2) * pow(gradients[i], 2);
+        new_m[i] = BETA1 * m[i] + (1 - BETA1) * clamp(gradients[i], -LIMIT_STEP, LIMIT_STEP);
+        new_v[i] = BETA2 * v[i] + (1 - BETA2) * pow(clamp(gradients[i], -LIMIT_STEP, LIMIT_STEP), 2);
 
-        float m_hat = m[iter][i] / (1 - pow(BETA1, iter+1));
-        float v_hat = v[iter][i] / (1 - pow(BETA2, iter+1));
+        vk = new_v[i] / (1 - pow(BETA2, iter));
+        mk = new_m[i] / (1 - pow(BETA1, iter));
 
-        curr_params->array[i] -= ALPHA * clamp(m_hat / (sqrt(v_hat) + EPSILON), -LIMIT_STEP, LIMIT_STEP);
+        curr_params->array[i] -= clamp(ALPHA * mk / (sqrt(vk) + EPSILON), -LIMIT_STEP, LIMIT_STEP);
+
+        v[i] = new_v[i];
+        m[i] = new_m[i];
     }
+
+    free(gradients);
+    free(new_v);
+    free(new_m);
 }
 
-void print_history(float* gradients, Params** params)
+void print_history(float* loss, float* gradients, Params** params, int final_iter)
 {
-    printf("Gradients, Params:\n");
-    for (int i = 0; i < MAX_ITER; i++)
+    printf("Loss, Gradients, Params:\n");
+    for (int i = 0; i < final_iter; i++)
     {
-        printf("%f, %f\n", gradients[i], params[i]->array[0]);
+        printf("%f, %f, %f, %f\n", loss[i], gradients[i], params[i]->array[0], params[i]->array[1]);
     }
 }
 
-void export_to_file(float *array, int len, char *filename)
-{
-    FILE *file = fopen(filename, "w");
-    if (file == NULL)
-    {
-        printf("Error opening file\n");
-        exit(1);
-    }
-
-    for (int i = 0; i < len; i++)
-    {
-        fprintf(file, "%d,%f\n", i, array[i]);
-    }
-
-    fclose(file);
-}
 
 Params* gradient_descent()
 {   // main function
     float gradients[MAX_ITER], loss[MAX_ITER];
     Params* params[MAX_ITER];
-    float m[MAX_ITER + 1][NUM_PARAMS];
-    float v[MAX_ITER + 1][NUM_PARAMS];
-
-    for (int i = 0; i < NUM_PARAMS; i++)
-    {
-        m[0][i] = v[0][i] = 0;
-    }
-    
+    float v[NUM_PARAMS] = {0}, m[NUM_PARAMS] = {0};
 
     Params* curr_params = generate_random_params();
-    Data* data = import_data("data.txt");    // change the file name to import data
+    Data* data = import_data("podaci_za_fit.csv");    // change the file name to import data
 
-    for (int iter = 1; iter <= MAX_ITER; iter++)
+    int iter;
+    for (iter = 0; iter < MAX_ITER; iter++)
     {
-        gradients[iter-1] = loss_function_gradient(curr_params, data)[0];
-        params[iter-1] = copy_params(curr_params);
-        loss[iter-1] = loss_function(curr_params, data);
+        gradients[iter] = loss_function_gradient(curr_params, data)[0];
+        params[iter] = copy_params(curr_params);
+        loss[iter] = loss_function(curr_params, data);
 
-        update_params(curr_params, data, m, v, iter);
+        update_params(curr_params, data, v, m, iter+1);
+        if (loss[iter] < TERMINATION_CRITERIUM)
+            break;
     }
-
-    // print_history(gradients, params);
-    export_to_file(loss, MAX_ITER, "loss.txt");
+    // print_history(loss, gradients, params, iter);
 
     return curr_params;
 }
-
-
-
-
-
 
 int main()
 {
@@ -255,10 +243,6 @@ int main()
         printf("%f  ", optimized_params->array[i]);
     }
     printf("\n");
-
-    float loss = loss_function(optimized_params, import_data("data.txt"));
-    printf("Loss: %f\n", loss);
-
 
     return 0;
 }
